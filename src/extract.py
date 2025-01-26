@@ -69,9 +69,9 @@ class Pipeline:
         self.calc_signal_ref()
         print("FInsih signal ref")
 
-        print("Calculating timedelay")
-        self.calc_time_delays()
-        print("FInsih timedelay")
+        # print("Calculating timedelay")
+        # self.calc_time_delays()
+        # print("FInsih timedelay")
 
     @staticmethod
     def init_pool_processes(filtered_video_, window_size_):
@@ -301,6 +301,25 @@ class Pipeline:
 
         self.time_delays = time_delays
 
+    def get_heatmap_video_intensity(self):
+        heatmaps = np.zeros((self.n_frames, self.height, self.width), dtype=np.float32)
+        
+        for i in range(self.n_patches_h):
+            for j in range(self.n_patches_w):
+                y_start, y_end = i * self.window_size, (i + 1) * self.window_size
+                x_start, x_end = j * self.window_size, (j + 1) * self.window_size
+                heatmaps[:, y_start:y_end, x_start:x_end] = self.s_list[i, j].reshape(-1, 1, 1)
+
+        heatmaps_normalized = (heatmaps / np.max(heatmaps)) * 255.0
+        heatmaps_normalized = heatmaps_normalized.astype(np.uint8)
+        
+        heatmap_frames = np.empty((self.n_frames, self.height, self.width, 3), dtype=np.uint8)
+        for t in range(self.n_frames):
+            heatmap_color = cv2.applyColorMap(heatmaps_normalized[t], cv2.COLORMAP_JET)
+            heatmap_frames[t] = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
+
+        return heatmap_frames
+
     def get_heatmap_video(self):
         patch_height = self.height // self.n_patches_h
         patch_width = self.width // self.n_patches_w
@@ -348,7 +367,7 @@ class Pipeline:
 
         return heatmap_frames
 
-    def process_video(self):
+    def process_video_time_delays(self):
 
         min_delay = np.nanmin(self.time_delays)
         max_delay = np.nanmax(self.time_delays)
@@ -379,6 +398,20 @@ class Pipeline:
         boxed_video = draw_box(overlaid_video, self.fps, self.center_point, self.window_size, self.signal_ref)
         write_video(boxed_video, self.fps, "./out/heatmap.avi")
 
+    def process_video_intensity(self):
+        print("getting heatmap frames")
+        heatmap_frames = self.get_heatmap_video_intensity()
+        print("finish getting heatmap frames")
+        heatmap_float = heatmap_frames.astype(np.float32)
+        red_channel = heatmap_float[..., 0]  # (n_frames, height, width)
+        red_normalized = red_channel / 255.0
+        mask = red_normalized > 0.05
+        combined_mask = self.segmentation_mask & mask  # (n_frames, height, width)
+        mask = combined_mask[..., np.newaxis].repeat(3, axis=-1)  # add channel dim
+        overlaid_video = np.where(mask, heatmap_frames, self.video)
+
+        draw_box(overlaid_video, self.fps, self.center_point, self.window_size, self.signal_ref, "./out/heatmap.avi")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -389,4 +422,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     pipe = Pipeline(args.video_path, args.mask_path)
-    pipe.process_video()
+    pipe.process_video_intensity()
