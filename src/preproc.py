@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import tqdm
 
+
 def pyrDown(image, kernel):
     return cv2.filter2D(image, -1, kernel)[::2, ::2]
 
@@ -23,8 +24,8 @@ def pyrUp(image, kernel, dst_shape=None):
     return cv2.filter2D(upsampled_image, -1, 4 * kernel)
 
 
+# fix the performance of the filter
 def temporal_bp_filter(images, fps, freq_range, axis=0):
-
     fft = np.fft.fft(images, axis=axis)
     frequencies = np.fft.fftfreq(images.shape[0], d=1.0 / fps)
 
@@ -35,6 +36,7 @@ def temporal_bp_filter(images, fps, freq_range, axis=0):
     fft[high:] = 0
 
     return np.fft.ifft(fft, axis=0).real
+
 
 def spatial_filter(image, kernel, level):
     """
@@ -66,20 +68,22 @@ def get_spatial_filtered_images(images, kernel, level):
     # )
 
     for i in tqdm.tqdm(
-        range(images.shape[0]), ascii=True, desc="Applying gaussian blur to spatially filter video"
+        range(images.shape[0]),
+        ascii=True,
+        desc="Applying gaussian blur to spatially filter video",
     ):
         # green_channel = images[i, :, :, 1]
-        filtered_images[i] = spatial_filter(
-            image=images[i], kernel=kernel, level=level
-        )
+        filtered_images[i] = spatial_filter(image=images[i], kernel=kernel, level=level)
 
     return filtered_images
 
 
 def get_temporal_filtered_video(video, fps, freq_range, alpha, attenuation):
+    print("got framerate ", fps)
     filtered_images = temporal_bp_filter(
         images=video, fps=fps, freq_range=freq_range
     ).astype(np.float32)
+    print("finished applying filters ", fps)
 
     filtered_images *= alpha
     # filtered_pyramids[:, :, :, 1:] *= attenuation

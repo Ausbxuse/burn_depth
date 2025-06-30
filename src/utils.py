@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+
 def load_video(video_path):
     image_sequence = []
     video = cv2.VideoCapture(video_path)
@@ -15,7 +16,9 @@ def load_video(video_path):
         image_sequence.append(frame[:, :, ::-1])
 
     video.release()
+    print("Video fps:", fps)
     return np.asarray(image_sequence), fps
+
 
 def write_video(video, fps, output_name):
     """

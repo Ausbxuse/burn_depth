@@ -21,7 +21,7 @@ def bandpass_filter(signal, lowcut, highcut, fs, order=4):
     nyquist = 0.5 * fs  # Nyquist frequency
     low = lowcut / nyquist
     high = highcut / nyquist
-    b, a = butter(order, [low, high], btype='band')
+    b, a = butter(order, [low, high], btype="band")
     filtered_signal = filtfilt(b, a, signal)
     return filtered_signal
 
@@ -89,11 +89,14 @@ class Pipeline:
             j * window_size : (j + 1) * window_size,
             :,
         ]
-        result = get_pca_signal(patch_images)
+        result = get_chrom_signal(patch_images)
         return (i, j, result)
 
     def filter_video(self, freq_range):
-        spatial_filtered_video = get_spatial_filtered_images(self.video, gaussian_kernel, 3)
+        spatial_filtered_video = get_spatial_filtered_images(
+            self.video, gaussian_kernel, 3
+        )
+        print("applying temporal filter")
         filtered_video = get_temporal_filtered_video(
             spatial_filtered_video, self.fps, freq_range, alpha=2, attenuation=1
         )  # TODO: check alpha
@@ -147,7 +150,7 @@ class Pipeline:
         self.signal_ref = signal_ref
 
     def calc_heart_rate(self):
-        signal = get_pca_signal(  # NOTE: Chrom might work better
+        signal = get_chrom_signal(  # NOTE: Chrom might work better
             self.video[
                 :,
                 self.center_point[0] - 10 : self.center_point[0] + 10,
@@ -157,19 +160,21 @@ class Pipeline:
         )
 
         freq_range = (0.5, 3.333)
-        freqs, psd = welch(signal, fs=self.fps, nperseg=256)
+        b, a = butter(3, [0.7/(self.fps/2), 4.0/(self.fps/2)], btype='band')
+        signal_bp = filtfilt(b, a, signal)
+        freqs, psd = welch(signal_bp, fs=self.fps, nperseg=256)
 
-        mask = (freqs >= freq_range[0]) & (freqs <= freq_range[1])
+        # mask = (freqs >= freq_range[0]) & (freqs <= freq_range[1])
 
-        freqs_in_range = freqs[mask]
-        psd_in_range = psd[mask]
+        # freqs = freqs[mask]
+        # psd = psd[mask]
 
-        if len(freqs_in_range) == 0:
+        if len(freqs) == 0:
             raise ValueError("No frequencies found in the specified range.")
 
-        idx = np.argmax(psd_in_range)
+        idx = np.argmax(psd)
 
-        prominent_freq = freqs_in_range[idx]
+        prominent_freq = freqs[idx]
 
         plt.figure(figsize=(10, 6))
         plt.plot(freqs, psd, label=f"Signal {0 + 1}")
@@ -180,8 +185,8 @@ class Pipeline:
         plt.legend()
         plt.savefig("./out/psd.png")
 
-        # self.heart_rate = prominent_freq * 60
-        self.heart_rate = 70
+        self.heart_rate = prominent_freq * 60
+        # self.heart_rate = 70
         print("guessed bpm=", self.heart_rate)
 
     def get_snr(self, signal, fs, freq_range):
@@ -237,11 +242,11 @@ class Pipeline:
         amplitude_map = np.mean(np.abs(s_list), axis=2)
 
         plt.figure(figsize=(10, 8))
-        plt.imshow(amplitude_map, cmap='viridis', interpolation='nearest')
-        plt.colorbar(label='Amplitude')
-        plt.title('Amplitude Map')
-        plt.xlabel('Width Patches')
-        plt.ylabel('Height Patches')
+        plt.imshow(amplitude_map, cmap="viridis", interpolation="nearest")
+        plt.colorbar(label="Amplitude")
+        plt.title("Amplitude Map")
+        plt.xlabel("Width Patches")
+        plt.ylabel("Height Patches")
         plt.savefig("./out/amplitude.png")
 
     @staticmethod
@@ -303,17 +308,21 @@ class Pipeline:
 
     def get_heatmap_video_intensity(self):
         heatmaps = np.zeros((self.n_frames, self.height, self.width), dtype=np.float32)
-        
+
         for i in range(self.n_patches_h):
             for j in range(self.n_patches_w):
                 y_start, y_end = i * self.window_size, (i + 1) * self.window_size
                 x_start, x_end = j * self.window_size, (j + 1) * self.window_size
-                heatmaps[:, y_start:y_end, x_start:x_end] = self.s_list[i, j].reshape(-1, 1, 1)
+                heatmaps[:, y_start:y_end, x_start:x_end] = self.s_list[i, j].reshape(
+                    -1, 1, 1
+                )
 
         heatmaps_normalized = (heatmaps / np.max(heatmaps)) * 255.0
         heatmaps_normalized = heatmaps_normalized.astype(np.uint8)
-        
-        heatmap_frames = np.empty((self.n_frames, self.height, self.width, 3), dtype=np.uint8)
+
+        heatmap_frames = np.empty(
+            (self.n_frames, self.height, self.width, 3), dtype=np.uint8
+        )
         for t in range(self.n_frames):
             heatmap_color = cv2.applyColorMap(heatmaps_normalized[t], cv2.COLORMAP_JET)
             heatmap_frames[t] = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
@@ -328,9 +337,9 @@ class Pipeline:
             np.arange(self.n_patches_h), np.arange(self.n_patches_w), indexing="ij"
         )
         y_start = (i_indices * patch_height).flatten()
-        y_end = ( (i_indices + 1) * patch_height ).flatten()
-        x_start = ( j_indices * patch_width ).flatten()
-        x_end = ( (j_indices + 1) * patch_width ).flatten()
+        y_end = ((i_indices + 1) * patch_height).flatten()
+        x_start = (j_indices * patch_width).flatten()
+        x_end = ((j_indices + 1) * patch_width).flatten()
 
         valid_segments = (self.valid_mask & self.patch_segmentation_mask).flatten()
 
@@ -395,7 +404,13 @@ class Pipeline:
         mask = combined_mask[..., np.newaxis].repeat(3, axis=-1)  # add channel dim
         overlaid_video = np.where(mask, heatmap_frames, self.video)
 
-        boxed_video = draw_box(overlaid_video, self.fps, self.center_point, self.window_size, self.signal_ref)
+        boxed_video = draw_box(
+            overlaid_video,
+            self.fps,
+            self.center_point,
+            self.window_size,
+            self.signal_ref,
+        )
         write_video(boxed_video, self.fps, "./out/heatmap.avi")
 
     def process_video_intensity(self):
@@ -410,7 +425,14 @@ class Pipeline:
         mask = combined_mask[..., np.newaxis].repeat(3, axis=-1)  # add channel dim
         overlaid_video = np.where(mask, heatmap_frames, self.video)
 
-        draw_box(overlaid_video, self.fps, self.center_point, self.window_size, self.signal_ref, "./out/heatmap.avi")
+        draw_box(
+            overlaid_video,
+            self.fps,
+            self.center_point,
+            self.window_size,
+            self.signal_ref,
+            "./out/heatmap.avi",
+        )
 
 
 if __name__ == "__main__":
