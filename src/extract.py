@@ -11,7 +11,8 @@ from skimage.restoration import unwrap_phase
 
 from constants import gaussian_kernel
 from preproc import get_spatial_filtered_images, get_temporal_filtered_video
-from signals import get_chrom_signal, get_green_signal, get_pca_signal
+from signals import (get_chrom_signal, get_green_signal, get_pca_signal,
+                     get_pos_signal)
 from utils import (load_video, select_center_point, select_segmenting_mask,
                    write_video)
 from visual import draw_box
@@ -89,7 +90,7 @@ class Pipeline:
             j * window_size : (j + 1) * window_size,
             :,
         ]
-        result = get_chrom_signal(patch_images)
+        result = get_pos_signal(patch_images)
         return (i, j, result)
 
     def filter_video(self, freq_range):
@@ -150,7 +151,7 @@ class Pipeline:
         self.signal_ref = signal_ref
 
     def calc_heart_rate(self):
-        signal = get_chrom_signal(  # NOTE: Chrom might work better
+        signal = get_pos_signal(  # NOTE: Chrom might work better
             self.video[
                 :,
                 self.center_point[0] - 10 : self.center_point[0] + 10,

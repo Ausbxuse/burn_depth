@@ -147,6 +147,7 @@ def get_green_signal(rgb_video):
 
     return s
 
+
 def get_pca_signal(rgb_video):
     reshaped_video = rgb_video.reshape(rgb_video.shape[0], -1).astype(np.float32)
 
@@ -154,5 +155,40 @@ def get_pca_signal(rgb_video):
     principal_component = pca.fit_transform(reshaped_video)
 
     s = principal_component.flatten()
+
+    return s
+
+
+def get_pos_signal(rgb_video):
+    """
+    Extract the rPPG pulse signal using the Plane-Orthogonal-to-Skin (POS) method.
+
+    Args:
+        rgb_video: numpy array of shape (T, H, W, 3), with pixel values in [0, 255] or [0, 1].
+
+    Returns:
+        s: numpy array of shape (T,), the raw POS pulse signal.
+    """
+    # 1) Spatially average each frame to get a 3×1 vector per time point
+    #    C[t] = [R_mean, G_mean, B_mean]
+    C = rgb_video.mean(axis=(1, 2)).astype(np.float32)  # shape: (T, 3)
+
+    # 2) Temporally normalize each channel (zero-mean, unit-variance)
+    mu = C.mean(axis=0)  # shape: (3,)
+    sigma = C.std(axis=0)  # shape: (3,)
+    Cn = (C - mu) / sigma  # shape: (T, 3)
+
+    # 3) Project onto the POS subspace:
+    #    P = [[ 0,  1, -1],
+    #         [-2,  1,  1]]
+    P = np.array([[0, 1, -1], [-2, 1, 1]], dtype=np.float32)  # shape: (2, 3)
+
+    #    S = Cn · Pᵀ  → shape (T, 2)
+    S = Cn.dot(P.T)
+    S1, S2 = S[:, 0], S[:, 1]
+
+    # 4) Combine the two orthogonal components into a single 1-D signal
+    alpha = np.std(S1) / np.std(S2)
+    s = S1 - alpha * S2
 
     return s
